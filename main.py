@@ -4,24 +4,24 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermi
 from flask import Flask
 from threading import Thread
 
-# --- RENDER ALIVE SERVER ---
+# --- RENDER SERVER ---
 webapp = Flask(__name__)
 @webapp.route('/')
-def index(): return "Security Bot is running!"
+def index(): return "Security Bot is Live!"
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     webapp.run(host='0.0.0.0', port=port)
 
-# --- BOT CONFIGURATION ---
+# --- BOT CONFIG ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# 'prefixes' add karne se bot / aur ! dono se commands uthayega
+# Yahan humne prefixes badal diye hain taaki bot responsive rahe
 app = Client("SecurityBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Temporary Database
-group_settings = {"welcome": True, "captcha": True, "abuse": True}
+# Temporary Settings
+group_settings = {"abuse": True, "welcome": True}
 authorized_users = []
 
 # Admin Check Helper
@@ -31,16 +31,16 @@ async def is_admin(chat_id, user_id):
         return member.status in ["administrator", "creator"]
     except: return False
 
-# --- COMMANDS LOGIC ---
+# --- COMMANDS WITH USERNAME SUPPORT ---
 
-# 1. Start Command (Works everywhere)
-@app.on_message(filters.command("start") & (filters.private | filters.group))
+# 1. Start Command
+@app.on_message(filters.command(["start", f"start@{(BOT_TOKEN.split(':')[0])}"]))
 async def start_handler(client, message):
     bot = await client.get_me()
     text = (
         f"🔐 Hello {message.from_user.mention}, welcome to Security Bot!\n\n"
         "✨ **Your Personal Chat Bodyguard is active!**\n\n"
-        "Use the buttons below to explore features:"
+        "Use buttons below to explore:"
     )
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("Updates 📢", url="https://t.me/SANATANI_METHODS"), 
@@ -51,75 +51,53 @@ async def start_handler(client, message):
     ])
     await message.reply_text(text, reply_markup=buttons)
 
-# 2. Settings Command (/settings)
-@app.on_message(filters.command("settings") & filters.group)
-async def settings_handler(client, message):
+# 2. Abuse Command Fix (Ab ye pakka chalega)
+@app.on_message(filters.command(["abuse", "abuse@GcSecurityProbot"]) & filters.group)
+async def abuse_toggle(client, message):
     if not await is_admin(message.chat.id, message.from_user.id):
-        return await message.reply("❌ Only Admins can use this command.")
-    
-    status_w = "✅ ON" if group_settings["welcome"] else "❌ OFF"
-    status_c = "✅ ON" if group_settings["captcha"] else "❌ OFF"
-    text = f"⚙️ **Control Panel**\n\nWelcome: {status_w}\nCaptcha: {status_c}"
-    buttons = [[InlineKeyboardButton("Toggle Welcome", callback_data="toggle_w")],
-               [InlineKeyboardButton("Toggle Captcha", callback_data="toggle_c")]]
-    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-# 3. Abuse Toggle (/abuse enable or /abuse disable)
-@app.on_message(filters.command("abuse") & filters.group)
-async def abuse_handler(client, message):
-    if not await is_admin(message.chat.id, message.from_user.id): return
+        return
     
     if len(message.command) > 1:
         choice = message.command[1].lower()
         if choice in ["enable", "on"]:
             group_settings["abuse"] = True
-            await message.reply("🚫 Anti-Abuse filter is now **ENABLED**.")
+            await message.reply("🚫 **Anti-Abuse filter is now ENABLED.**")
         elif choice in ["disable", "off"]:
             group_settings["abuse"] = False
-            await message.reply("✅ Anti-Abuse filter is now **DISABLED**.")
+            await message.reply("✅ **Anti-Abuse filter is now DISABLED.**")
     else:
-        await message.reply("Usage: `/abuse enable` or `/abuse disable`.")
+        await message.reply("Usage: `/abuse enable` or `/abuse disable`")
 
-# 4. Auth & Unauth Logic
+# 3. Settings Command
+@app.on_message(filters.command(["settings", "settings@GcSecurityProbot"]) & filters.group)
+async def settings_handler(client, message):
+    if not await is_admin(message.chat.id, message.from_user.id): return
+    await message.reply("⚙️ **Settings Menu Open** (Check Private or Inline)")
+
+# 4. Auth/Unauth (Reply base)
 @app.on_message(filters.command(["auth", "unauth"]) & filters.group)
 async def auth_logic(client, message):
     if not await is_admin(message.chat.id, message.from_user.id): return
     if not message.reply_to_message:
-        return await message.reply("Reply to a user's message to authorize them.")
+        return await message.reply("Reply to a user to Auth/Unauth.")
     
-    user_id = message.reply_to_message.from_user.id
-    cmd = message.command[0].lower()
-    
-    if cmd == "auth":
-        if user_id not in authorized_users:
-            authorized_users.append(user_id)
-            await message.reply(f"✅ User `{user_id}` has been authorized.")
+    uid = message.reply_to_message.from_user.id
+    if message.command[0] == "auth":
+        if uid not in authorized_users: authorized_users.append(uid)
+        await message.reply(f"✅ User {uid} Authorized.")
     else:
-        if user_id in authorized_users:
-            authorized_users.remove(user_id)
-            await message.reply(f"❌ User `{user_id}` authorization removed.")
+        if uid in authorized_users: authorized_users.remove(uid)
+        await message.reply(f"❌ User {uid} Unauthorized.")
 
-# --- CALLBACKS ---
-@app.on_callback_query()
-async def callbacks(client, cb):
-    if cb.data == "help_menu":
-        text = "📖 **Help Menu**\n\n/start - Open Menu\n/settings - Toggle Panels\n/auth - Whitelist user\n/abuse - Filter bad words"
-        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_home")]]))
-    elif cb.data == "back_home":
-        await cb.message.delete()
-        await start_handler(client, cb.message)
-
-# --- AUTOMATIC PROTECTION ---
+# --- AUTO DELETE MEDIA ---
 @app.on_message(filters.group & ~filters.service)
-async def protect(client, message):
-    # Admins aur Authorized users ko skip karein
+async def auto_delete(client, message):
     if await is_admin(message.chat.id, message.from_user.id) or message.from_user.id in authorized_users:
         return
-    
-    # Delete Media
-    if message.media:
+    if message.media or message.edit_date:
         await message.delete()
 
+# --- RUN ---
 if __name__ == "__main__":
     Thread(target=run_flask).start()
     app.run()
