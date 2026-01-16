@@ -1,11 +1,10 @@
 import os
-import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
 from flask import Flask
 from threading import Thread
 
-# --- WEB SERVER FOR RENDER ---
+# --- RENDER ALIVE SERVER ---
 webapp = Flask(__name__)
 @webapp.route('/')
 def index(): return "Security Bot is running!"
@@ -18,18 +17,14 @@ API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
+# 'prefixes' add karne se bot / aur ! dono se commands uthayega
 app = Client("SecurityBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Temporary Database (Restart par reset hoga - Database ke bina yahi option hai)
-group_settings = {
-    "welcome_enabled": True,
-    "captcha_enabled": True,
-    "anti_abuse": True,
-    "media_delay": 0  # 0 means instant delete
-}
-authorized_users = [] # Whitelisted users list
+# Temporary Database
+group_settings = {"welcome": True, "captcha": True, "abuse": True}
+authorized_users = []
 
-# --- HELPERS ---
+# Admin Check Helper
 async def is_admin(chat_id, user_id):
     try:
         member = await app.get_chat_member(chat_id, user_id)
@@ -38,14 +33,14 @@ async def is_admin(chat_id, user_id):
 
 # --- COMMANDS LOGIC ---
 
-# 1. Start & Help (UI Setup)
-@app.on_message(filters.command("start"))
-async def start(client, message):
+# 1. Start Command (Works everywhere)
+@app.on_message(filters.command("start") & (filters.private | filters.group))
+async def start_handler(client, message):
     bot = await client.get_me()
     text = (
-        "🔐 **Security Bot Main Menu**\n\n"
-        "✨ Your Personal Chat Bodyguard is active!\n\n"
-        "Use buttons below to navigate:"
+        f"🔐 Hello {message.from_user.mention}, welcome to Security Bot!\n\n"
+        "✨ **Your Personal Chat Bodyguard is active!**\n\n"
+        "Use the buttons below to explore features:"
     )
     buttons = InlineKeyboardMarkup([
         [InlineKeyboardButton("Updates 📢", url="https://t.me/SANATANI_METHODS"), 
@@ -56,89 +51,75 @@ async def start(client, message):
     ])
     await message.reply_text(text, reply_markup=buttons)
 
-# 2. Settings Command
+# 2. Settings Command (/settings)
 @app.on_message(filters.command("settings") & filters.group)
-async def settings_cmd(client, message):
-    if not await is_admin(message.chat.id, message.from_user.id): return
-    status_w = "✅ ON" if group_settings["welcome_enabled"] else "❌ OFF"
-    status_c = "✅ ON" if group_settings["captcha_enabled"] else "❌ OFF"
+async def settings_handler(client, message):
+    if not await is_admin(message.chat.id, message.from_user.id):
+        return await message.reply("❌ Only Admins can use this command.")
+    
+    status_w = "✅ ON" if group_settings["welcome"] else "❌ OFF"
+    status_c = "✅ ON" if group_settings["captcha"] else "❌ OFF"
     text = f"⚙️ **Control Panel**\n\nWelcome: {status_w}\nCaptcha: {status_c}"
-    buttons = [[InlineKeyboardButton("Toggle Welcome", callback_data="toggle_welcome")],
-               [InlineKeyboardButton("Toggle Captcha", callback_data="toggle_captcha")]]
+    buttons = [[InlineKeyboardButton("Toggle Welcome", callback_data="toggle_w")],
+               [InlineKeyboardButton("Toggle Captcha", callback_data="toggle_c")]]
     await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-# 3. Auth Command (Authorize User)
-@app.on_message(filters.command("auth") & filters.group)
-async def auth_user(client, message):
+# 3. Abuse Toggle (/abuse enable or /abuse disable)
+@app.on_message(filters.command("abuse") & filters.group)
+async def abuse_handler(client, message):
     if not await is_admin(message.chat.id, message.from_user.id): return
-    if message.reply_to_message:
-        user_id = message.reply_to_message.from_user.id
+    
+    if len(message.command) > 1:
+        choice = message.command[1].lower()
+        if choice in ["enable", "on"]:
+            group_settings["abuse"] = True
+            await message.reply("🚫 Anti-Abuse filter is now **ENABLED**.")
+        elif choice in ["disable", "off"]:
+            group_settings["abuse"] = False
+            await message.reply("✅ Anti-Abuse filter is now **DISABLED**.")
+    else:
+        await message.reply("Usage: `/abuse enable` or `/abuse disable`.")
+
+# 4. Auth & Unauth Logic
+@app.on_message(filters.command(["auth", "unauth"]) & filters.group)
+async def auth_logic(client, message):
+    if not await is_admin(message.chat.id, message.from_user.id): return
+    if not message.reply_to_message:
+        return await message.reply("Reply to a user's message to authorize them.")
+    
+    user_id = message.reply_to_message.from_user.id
+    cmd = message.command[0].lower()
+    
+    if cmd == "auth":
         if user_id not in authorized_users:
             authorized_users.append(user_id)
-            await message.reply_text(f"✅ User {user_id} has been authorized!")
-        else:
-            await message.reply_text("This user is already authorized.")
+            await message.reply(f"✅ User `{user_id}` has been authorized.")
     else:
-        await message.reply_text("Reply to a user's message to authorize them.")
-
-# 4. Unauth Command
-@app.on_message(filters.command("unauth") & filters.group)
-async def unauth_user(client, message):
-    if not await is_admin(message.chat.id, message.from_user.id): return
-    if message.reply_to_message:
-        user_id = message.reply_to_message.from_user.id
         if user_id in authorized_users:
             authorized_users.remove(user_id)
-            await message.reply_text(f"❌ User {user_id} authorization removed.")
-    else:
-        await message.reply_text("Reply to a user to unauthorize.")
-
-# 5. Abuse Filter Toggle
-@app.on_message(filters.command("abuse") & filters.group)
-async def toggle_abuse(client, message):
-    if not await is_admin(message.chat.id, message.from_user.id): return
-    group_settings["anti_abuse"] = not group_settings["anti_abuse"]
-    status = "Enabled" if group_settings["anti_abuse"] else "Disabled"
-    await message.reply_text(f"🚫 Anti-Abuse filter is now **{status}**.")
+            await message.reply(f"❌ User `{user_id}` authorization removed.")
 
 # --- CALLBACKS ---
 @app.on_callback_query()
-async def cb_handler(client, cb):
+async def callbacks(client, cb):
     if cb.data == "help_menu":
-        help_text = (
-            "📖 **Security Bot Commands:**\n\n"
-            "• `/start` — Main Menu\n"
-            "• `/settings` — Toggle Welcome/Captcha\n"
-            "• `/auth` — Whitelist a user (Reply to msg)\n"
-            "• `/unauth` — Remove from whitelist\n"
-            "• `/abuse` — Toggle Bad Word Filter\n"
-            "• `/delay` — Set media deletion delay\n"
-        )
-        await cb.message.edit_text(help_text, reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_home")]
-        ]))
+        text = "📖 **Help Menu**\n\n/start - Open Menu\n/settings - Toggle Panels\n/auth - Whitelist user\n/abuse - Filter bad words"
+        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back_home")]]))
     elif cb.data == "back_home":
-        await start(client, cb.message)
         await cb.message.delete()
-    # Settings toggles (logic already in previous versions)
-    elif cb.data == "toggle_welcome":
-        group_settings["welcome_enabled"] = not group_settings["welcome_enabled"]
-        await cb.answer("Welcome Toggled")
-    elif cb.data == "toggle_captcha":
-        group_settings["captcha_enabled"] = not group_settings["captcha_enabled"]
-        await cb.answer("Captcha Toggled")
+        await start_handler(client, cb.message)
 
-# --- AUTO PROTECTION ---
+# --- AUTOMATIC PROTECTION ---
 @app.on_message(filters.group & ~filters.service)
-async def protection_logic(client, message):
+async def protect(client, message):
+    # Admins aur Authorized users ko skip karein
     if await is_admin(message.chat.id, message.from_user.id) or message.from_user.id in authorized_users:
         return
-
-    # Anti-Media
+    
+    # Delete Media
     if message.media:
         await message.delete()
 
-# --- RUN ---
 if __name__ == "__main__":
     Thread(target=run_flask).start()
     app.run()
