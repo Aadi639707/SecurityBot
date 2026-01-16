@@ -5,7 +5,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ChatPermi
 from flask import Flask
 from threading import Thread
 
-# 1. WEB SERVER FOR RENDER
+# --- RENDER ALIVE SERVER ---
 webapp = Flask(__name__)
 
 @webapp.route('/')
@@ -16,7 +16,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     webapp.run(host='0.0.0.0', port=port)
 
-# 2. BOT CONFIGURATION
+# --- BOT CONFIGURATION ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -29,7 +29,7 @@ group_settings = {
     "captcha_enabled": True
 }
 
-# 3. ADMIN CHECK HELPER
+# --- ADMIN CHECK HELPER ---
 async def is_admin(chat_id, user_id):
     try:
         member = await app.get_chat_member(chat_id, user_id)
@@ -37,7 +37,7 @@ async def is_admin(chat_id, user_id):
     except:
         return False
 
-# 4. PROFESSIONAL START MENU
+# --- MAIN MENU (START) ---
 @app.on_message(filters.command("start"))
 async def start(client, message):
     bot = await client.get_me()
@@ -45,10 +45,10 @@ async def start(client, message):
         "🔐 **Hello! Welcome to Security Bot!**\n\n"
         "✨ **Your Personal Chat Bodyguard is here!**\n\n"
         "🚀 **Features:**\n"
-        "• Instantly deletes **edited messages**.\n"
-        "• Auto-removes all types of **media**.\n"
-        "• Cleans abusive words and spam.\n"
-        "• Flexible **admin controls** & captcha.\n\n"
+        "• Instantly deletes **edited messages** to prevent confusion.\n"
+        "• Auto-removes all types of **media** – photos, videos, stickers.\n"
+        "• Cleans abusive words to keep your group respectful.\n"
+        "• Offers flexible **admin controls** like captcha and toggles.\n\n"
         "💡 *Keep your chat clean, safe, and spam-free!*"
     )
     
@@ -67,33 +67,71 @@ async def start(client, message):
     ])
     await message.reply_text(text, reply_markup=buttons)
 
-# 5. HELP MENU
-@app.on_callback_query(filters.regex("help_menu"))
-async def help_menu(client, cb):
-    help_text = (
-        "📖 **Security Bot Commands:**\n\n"
-        "• `/start` — Open main menu\n"
-        "• `/settings` — Toggle Welcome/Captcha\n"
-        "• `/auth` — Authorize a user (Coming Soon)\n"
-        "• `/unauth` — Remove authorization\n\n"
-        "🛡️ *Admin rights are required for the bot to function.*"
-    )
-    await cb.message.edit_text(help_text, reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_home")]
-    ]))
+# --- SETTINGS PANEL ---
+@app.on_message(filters.command("settings") & filters.group)
+async def settings_cmd(client, message):
+    if not await is_admin(message.chat.id, message.from_user.id):
+        return await message.reply("❌ **Admins only.**")
+    
+    status_w = "✅ ON" if group_settings["welcome_enabled"] else "❌ OFF"
+    status_c = "✅ ON" if group_settings["captcha_enabled"] else "❌ OFF"
+    
+    text = f"⚙️ **Control Panel**\n\nWelcome: {status_w}\nCaptcha: {status_c}"
+    buttons = [[InlineKeyboardButton("Toggle Welcome", callback_data="toggle_welcome")],
+               [InlineKeyboardButton("Toggle Captcha", callback_data="toggle_captcha")]]
+    await message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
 
-@app.on_callback_query(filters.regex("back_home"))
-async def back_home(client, cb):
-    bot = await client.get_me()
-    text = "🔐 **Security Bot Main Menu**\n\nChoose an option below:"
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Updates 📢", url="https://t.me/SANATANI_METHODS"), InlineKeyboardButton("Support 💬", url="https://t.me/chattinggcand")],
-        [InlineKeyboardButton("➕ Add to Secure Your Chat", url=f"https://t.me/{bot.username}?startgroup=true")],
-        [InlineKeyboardButton("📜 Help & Commands", callback_data="help_menu"), InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/SANATANI_GOJO")]
-    ])
-    await cb.message.edit_text(text, reply_markup=buttons)
+# --- CALLBACK HANDLERS ---
+@app.on_callback_query()
+async def cb_handler(client, cb):
+    if not await is_admin(cb.message.chat.id, cb.from_user.id):
+        return await cb.answer("You are not an Admin!", show_alert=True)
+    
+    if cb.data == "help_menu":
+        help_text = (
+            "📖 **Available Commands:**\n\n"
+            "🔹 `/start` — Show main menu\n"
+            "🔹 `/settings` — Admin toggle panel\n"
+            "🔹 `/help` — View this command list\n"
+            "🔹 `/auth` — Authorize a user\n"
+            "🔹 `/unauth` — Remove authorization\n"
+            "🔹 `/authlist` — View authorized users\n"
+            "🔹 `/delay` — Set deletion delay\n"
+            "🔹 `/abuse` — Abusive word filter\n\n"
+            "Click back to return to the main menu."
+        )
+        return await cb.message.edit_text(help_text, reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Back to Menu", callback_data="back_home")]
+        ]))
 
-# 6. SECURITY LOGIC
+    if cb.data == "back_home":
+        bot = await client.get_me()
+        text = "🔐 **Security Bot Main Menu**\n\nChoose an option below:"
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Updates 📢", url="https://t.me/SANATANI_METHODS"), InlineKeyboardButton("Support 💬", url="https://t.me/chattinggcand")],
+            [InlineKeyboardButton("➕ Add to Secure Your Chat", url=f"https://t.me/{bot.username}?startgroup=true")],
+            [InlineKeyboardButton("📜 Help & Commands", callback_data="help_menu"), InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/SANATANI_GOJO")]
+        ])
+        return await cb.message.edit_text(text, reply_markup=buttons)
+
+    if cb.data == "toggle_welcome":
+        group_settings["welcome_enabled"] = not group_settings["welcome_enabled"]
+    elif cb.data == "toggle_captcha":
+        group_settings["captcha_enabled"] = not group_settings["captcha_enabled"]
+    elif cb.data.startswith("verify_"):
+        user_id = int(cb.data.split("_")[1])
+        if cb.from_user.id != user_id:
+            return await cb.answer("❌ Not for you!", show_alert=True)
+        await client.unban_chat_member(cb.message.chat.id, user_id)
+        return await cb.message.edit_text(f"✅ {cb.from_user.mention} verified successfully!")
+
+    # Refresh Settings View
+    status_w = "✅ ON" if group_settings["welcome_enabled"] else "❌ OFF"
+    status_c = "✅ ON" if group_settings["captcha_enabled"] else "❌ OFF"
+    await cb.message.edit_text(f"⚙️ **Control Panel**\n\nWelcome: {status_w}\nCaptcha: {status_c}",
+                               reply_markup=cb.message.reply_markup)
+
+# --- SECURITY LOGIC ---
 @app.on_edited_message(filters.group)
 async def del_edit(client, message):
     await message.delete()
@@ -103,31 +141,19 @@ async def del_media(client, message):
     if not await is_admin(message.chat.id, message.from_user.id):
         await message.delete()
 
-# 7. WELCOME & CAPTCHA VERIFICATION
 @app.on_message(filters.new_chat_members)
 async def welcome(client, message):
     for m in message.new_chat_members:
         if group_settings["captcha_enabled"]:
             await client.restrict_chat_member(message.chat.id, m.id, ChatPermissions(can_send_messages=False))
-            await message.reply_text(
-                f"Welcome {m.mention}! Please verify yourself to join the conversation.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Click to Verify", callback_data=f"verify_{m.id}")
-                ]])
-            )
+            await message.reply_text(f"Welcome {m.mention}! Please verify yourself.",
+                                     reply_markup=InlineKeyboardMarkup([[
+                                         InlineKeyboardButton("✅ Verify Me", callback_data=f"verify_{m.id}")
+                                     ]]))
         elif group_settings["welcome_enabled"]:
             await message.reply_text(f"Welcome {m.mention} to the group!")
 
-@app.on_callback_query(filters.regex("^verify_"))
-async def verify_user(client, cb):
-    user_id = int(cb.data.split("_")[1])
-    if cb.from_user.id != user_id:
-        return await cb.answer("❌ This button is for the new member only!", show_alert=True)
-    
-    await client.unban_chat_member(cb.message.chat.id, user_id)
-    await cb.message.edit_text(f"✅ {cb.from_user.mention} has been verified and unmuted!")
-
-# 8. STARTUP
+# --- EXECUTION ---
 if __name__ == "__main__":
     t = Thread(target=run_flask)
     t.daemon = True
